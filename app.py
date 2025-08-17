@@ -3,7 +3,7 @@ import pandas as pd
 from io import BytesIO
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
-st.title("🔍 File Comparison Tool")
+st.title("🔍 File Comparison Tool with Excel-like Filters")
 
 # Upload files
 main_file = st.file_uploader("Upload Main File", type=["csv", "xlsx"])
@@ -21,16 +21,28 @@ if main_file and client_file:
     else:
         df_client = pd.read_excel(client_file)
 
-    st.write("### 🔎 Apply Filters on Main File")
+    # --- MAIN FILE with Excel-like filter ---
+    st.write("### 🔎 Filter Main File")
     gb_main = GridOptionsBuilder.from_dataframe(df_main)
-    gb_main.configure_default_column(filter=True, sortable=True, resizable=True)
-    grid_main = AgGrid(df_main, gridOptions=gb_main.build(), update_mode=GridUpdateMode.FILTERING_CHANGED)
+    gb_main.configure_default_column(filter="agSetColumnFilter", sortable=True, resizable=True)
+    grid_main = AgGrid(
+        df_main,
+        gridOptions=gb_main.build(),
+        update_mode=GridUpdateMode.FILTERING_CHANGED,
+        enable_enterprise_modules=True
+    )
     df_main_filtered = pd.DataFrame(grid_main["data"])
 
-    st.write("### 🔎 Apply Filters on Client File")
+    # --- CLIENT FILE with Excel-like filter ---
+    st.write("### 🔎 Filter Client File")
     gb_client = GridOptionsBuilder.from_dataframe(df_client)
-    gb_client.configure_default_column(filter=True, sortable=True, resizable=True)
-    grid_client = AgGrid(df_client, gridOptions=gb_client.build(), update_mode=GridUpdateMode.FILTERING_CHANGED)
+    gb_client.configure_default_column(filter="agSetColumnFilter", sortable=True, resizable=True)
+    grid_client = AgGrid(
+        df_client,
+        gridOptions=gb_client.build(),
+        update_mode=GridUpdateMode.FILTERING_CHANGED,
+        enable_enterprise_modules=True
+    )
     df_client_filtered = pd.DataFrame(grid_client["data"])
 
     # Column selection
