@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
+st.set_page_config(page_title="File Comparison Tool", layout="wide")
 st.title("🔍 File Comparison Tool")
 
 # Upload files
@@ -20,10 +21,16 @@ if main_file and client_file:
     else:
         df_client = pd.read_excel(client_file)
 
-    st.write("### Preview - Main File")
-    st.dataframe(df_main.head())
-    st.write("### Preview - Client File")
-    st.dataframe(df_client.head())
+    st.write("### 🔎 Filter & Explore Data")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Main File (Filterable)")
+        df_main_filtered = st.data_editor(df_main, use_container_width=True, num_rows="dynamic")
+
+    with col2:
+        st.subheader("Client File (Filterable)")
+        df_client_filtered = st.data_editor(df_client, use_container_width=True, num_rows="dynamic")
 
     # Column selection
     st.sidebar.header("⚙️ Matching Settings")
@@ -34,31 +41,35 @@ if main_file and client_file:
         if not main_cols or not client_cols:
             st.error("⚠️ Please select at least one column from both files.")
         else:
+            # Work only on filtered datasets
+            df_main_work = df_main_filtered.copy()
+            df_client_work = df_client_filtered.copy()
+
             # Create concat keys
-            df_main["_merge_key"] = df_main[main_cols].astype(str).agg("||".join, axis=1)
-            df_client["_merge_key"] = df_client[client_cols].astype(str).agg("||".join, axis=1)
+            df_main_work["_merge_key"] = df_main_work[main_cols].astype(str).agg("||".join, axis=1)
+            df_client_work["_merge_key"] = df_client_work[client_cols].astype(str).agg("||".join, axis=1)
 
             # Find differences
-            client_not_in_main = df_client[~df_client["_merge_key"].isin(df_main["_merge_key"])].drop(columns=["_merge_key"])
-            main_not_in_client = df_main[~df_main["_merge_key"].isin(df_client["_merge_key"])].drop(columns=["_merge_key"])
+            client_not_in_main = df_client_work[~df_client_work["_merge_key"].isin(df_main_work["_merge_key"])].drop(columns=["_merge_key"])
+            main_not_in_client = df_main_work[~df_main_work["_merge_key"].isin(df_client_work["_merge_key"])].drop(columns=["_merge_key"])
 
             # Display counts
-            st.success(f"✅ Found {len(client_not_in_main)} rows in Client not in Main")
-            st.success(f"✅ Found {len(main_not_in_client)} rows in Main not in Client")
+            st.success(f"✅ Found {len(client_not_in_main)} rows in Client not in Main (filtered data)")
+            st.success(f"✅ Found {len(main_not_in_client)} rows in Main not in Client (filtered data)")
 
             # --- Create Summary Sheet ---
             summary_data = {
                 "Metric": [
-                    "Total rows in Main file",
-                    "Total rows in Client file",
+                    "Filtered rows in Main file",
+                    "Filtered rows in Client file",
                     "Rows in Client not in Main",
                     "Rows in Main not in Client",
                     "Columns used for matching (Main)",
                     "Columns used for matching (Client)"
                 ],
                 "Value": [
-                    len(df_main),
-                    len(df_client),
+                    len(df_main_work),
+                    len(df_client_work),
                     len(client_not_in_main),
                     len(main_not_in_client),
                     ", ".join(main_cols),
@@ -82,12 +93,11 @@ if main_file and client_file:
                     header_format = workbook.add_format({"bold": True, "bg_color": "#D9EAD3", "border": 1})
                     value_format = workbook.add_format({"border": 1})
 
-                    # Apply formatting
                     for col_num, value in enumerate(summary.columns.values):
                         worksheet.write(0, col_num, value, header_format)
 
-                    worksheet.set_column(0, 0, 40, value_format)  # Metric column
-                    worksheet.set_column(1, 1, 50, value_format)  # Value column
+                    worksheet.set_column(0, 0, 40, value_format)
+                    worksheet.set_column(1, 1, 50, value_format)
 
                 return buffer.getvalue()
 
