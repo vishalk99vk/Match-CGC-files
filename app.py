@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
-st.set_page_config(page_title="File Comparison Tool", layout="wide")
 st.title("🔍 File Comparison Tool")
 
 # Upload files
@@ -21,55 +21,52 @@ if main_file and client_file:
     else:
         df_client = pd.read_excel(client_file)
 
-    st.write("### 🔎 Filter & Explore Data")
-    col1, col2 = st.columns(2)
+    st.write("### 🔎 Apply Filters on Main File")
+    gb_main = GridOptionsBuilder.from_dataframe(df_main)
+    gb_main.configure_default_column(filter=True, sortable=True, resizable=True)
+    grid_main = AgGrid(df_main, gridOptions=gb_main.build(), update_mode=GridUpdateMode.FILTERING_CHANGED)
+    df_main_filtered = pd.DataFrame(grid_main["data"])
 
-    with col1:
-        st.subheader("Main File (Filterable)")
-        df_main_filtered = st.data_editor(df_main, use_container_width=True, num_rows="dynamic")
-
-    with col2:
-        st.subheader("Client File (Filterable)")
-        df_client_filtered = st.data_editor(df_client, use_container_width=True, num_rows="dynamic")
+    st.write("### 🔎 Apply Filters on Client File")
+    gb_client = GridOptionsBuilder.from_dataframe(df_client)
+    gb_client.configure_default_column(filter=True, sortable=True, resizable=True)
+    grid_client = AgGrid(df_client, gridOptions=gb_client.build(), update_mode=GridUpdateMode.FILTERING_CHANGED)
+    df_client_filtered = pd.DataFrame(grid_client["data"])
 
     # Column selection
     st.sidebar.header("⚙️ Matching Settings")
-    main_cols = st.sidebar.multiselect("Select column(s) from Main file", df_main.columns)
-    client_cols = st.sidebar.multiselect("Select column(s) from Client file", df_client.columns)
+    main_cols = st.sidebar.multiselect("Select column(s) from Main file", df_main_filtered.columns)
+    client_cols = st.sidebar.multiselect("Select column(s) from Client file", df_client_filtered.columns)
 
     if st.sidebar.button("Submit"):
         if not main_cols or not client_cols:
             st.error("⚠️ Please select at least one column from both files.")
         else:
-            # Work only on filtered datasets
-            df_main_work = df_main_filtered.copy()
-            df_client_work = df_client_filtered.copy()
-
-            # Create concat keys
-            df_main_work["_merge_key"] = df_main_work[main_cols].astype(str).agg("||".join, axis=1)
-            df_client_work["_merge_key"] = df_client_work[client_cols].astype(str).agg("||".join, axis=1)
+            # Create concat keys on filtered data
+            df_main_filtered["_merge_key"] = df_main_filtered[main_cols].astype(str).agg("||".join, axis=1)
+            df_client_filtered["_merge_key"] = df_client_filtered[client_cols].astype(str).agg("||".join, axis=1)
 
             # Find differences
-            client_not_in_main = df_client_work[~df_client_work["_merge_key"].isin(df_main_work["_merge_key"])].drop(columns=["_merge_key"])
-            main_not_in_client = df_main_work[~df_main_work["_merge_key"].isin(df_client_work["_merge_key"])].drop(columns=["_merge_key"])
+            client_not_in_main = df_client_filtered[~df_client_filtered["_merge_key"].isin(df_main_filtered["_merge_key"])].drop(columns=["_merge_key"])
+            main_not_in_client = df_main_filtered[~df_main_filtered["_merge_key"].isin(df_client_filtered["_merge_key"])].drop(columns=["_merge_key"])
 
             # Display counts
-            st.success(f"✅ Found {len(client_not_in_main)} rows in Client not in Main (filtered data)")
-            st.success(f"✅ Found {len(main_not_in_client)} rows in Main not in Client (filtered data)")
+            st.success(f"✅ Found {len(client_not_in_main)} rows in Client not in Main")
+            st.success(f"✅ Found {len(main_not_in_client)} rows in Main not in Client")
 
             # --- Create Summary Sheet ---
             summary_data = {
                 "Metric": [
-                    "Filtered rows in Main file",
-                    "Filtered rows in Client file",
+                    "Total rows in Main file (after filter)",
+                    "Total rows in Client file (after filter)",
                     "Rows in Client not in Main",
                     "Rows in Main not in Client",
                     "Columns used for matching (Main)",
                     "Columns used for matching (Client)"
                 ],
                 "Value": [
-                    len(df_main_work),
-                    len(df_client_work),
+                    len(df_main_filtered),
+                    len(df_client_filtered),
                     len(client_not_in_main),
                     len(main_not_in_client),
                     ", ".join(main_cols),
@@ -93,11 +90,12 @@ if main_file and client_file:
                     header_format = workbook.add_format({"bold": True, "bg_color": "#D9EAD3", "border": 1})
                     value_format = workbook.add_format({"border": 1})
 
+                    # Apply formatting
                     for col_num, value in enumerate(summary.columns.values):
                         worksheet.write(0, col_num, value, header_format)
 
-                    worksheet.set_column(0, 0, 40, value_format)
-                    worksheet.set_column(1, 1, 50, value_format)
+                    worksheet.set_column(0, 0, 45, value_format)  # Metric column
+                    worksheet.set_column(1, 1, 55, value_format)  # Value column
 
                 return buffer.getvalue()
 
