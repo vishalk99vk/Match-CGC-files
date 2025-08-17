@@ -1,123 +1,107 @@
 import streamlit as st
 import pandas as pd
+import traceback
 from io import BytesIO
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
-st.title("🔍 File Comparison Tool with Excel-like Filters")
+st.set_page_config(page_title="File Comparison Tool", layout="wide")
+st.title("🔍 File Comparison Tool")
 
 # Upload files
 main_file = st.file_uploader("Upload Main File", type=["csv", "xlsx"])
 client_file = st.file_uploader("Upload Client File", type=["csv", "xlsx"])
 
-if main_file and client_file:
-    # --- Read Main file ---
-    if main_file.name.endswith(".csv"):
-        df_main = pd.read_csv(main_file, dtype=str, low_memory=False)
+def load_file(uploaded_file):
+    if uploaded_file.name.endswith(".csv"):
+        return pd.read_csv(uploaded_file, dtype=str, low_memory=False)
     else:
-        df_main = pd.read_excel(main_file, dtype=str)
+        return pd.read_excel(uploaded_file, dtype=str)
 
-    # --- Read Client file ---
-    if client_file.name.endswith(".csv"):
-        df_client = pd.read_csv(client_file, dtype=str, low_memory=False)
-    else:
-        df_client = pd.read_excel(client_file, dtype=str)
+try:
+    if main_file and client_file:
+        df_main = load_file(main_file)
+        df_client = load_file(client_file)
 
-    # --- MAIN FILE with Excel-like filter ---
-    st.write("### 🔎 Filter Main File")
-    gb_main = GridOptionsBuilder.from_dataframe(df_main)
-    gb_main.configure_default_column(filter="agSetColumnFilter", sortable=True, resizable=True)
-    grid_main = AgGrid(
-        df_main,
-        gridOptions=gb_main.build(),
-        update_mode=GridUpdateMode.FILTERING_CHANGED,
-        enable_enterprise_modules=True
-    )
-    df_main_filtered = pd.DataFrame(grid_main["data"])
+        st.write("### 📄 Main File Preview")
+        st.dataframe(df_main.head(20), use_container_width=True)
 
-    # --- CLIENT FILE with Excel-like filter ---
-    st.write("### 🔎 Filter Client File")
-    gb_client = GridOptionsBuilder.from_dataframe(df_client)
-    gb_client.configure_default_column(filter="agSetColumnFilter", sortable=True, resizable=True)
-    grid_client = AgGrid(
-        df_client,
-        gridOptions=gb_client.build(),
-        update_mode=GridUpdateMode.FILTERING_CHANGED,
-        enable_enterprise_modules=True
-    )
-    df_client_filtered = pd.DataFrame(grid_client["data"])
+        st.write("### 📄 Client File Preview")
+        st.dataframe(df_client.head(20), use_container_width=True)
 
-    # --- Column selection ---
-    st.sidebar.header("⚙️ Matching Settings")
-    main_cols = st.sidebar.multiselect("Select column(s) from Main file", df_main_filtered.columns)
-    client_cols = st.sidebar.multiselect("Select column(s) from Client file", df_client_filtered.columns)
+        # Excel-like filter panel
+        st.sidebar.header("🔽 Filter Data (like Excel)")
+        filter_column = st.sidebar.selectbox("Choose column to filter (Main file)", [""] + list(df_main.columns))
+        if filter_column:
+            unique_vals = df_main[filter_column].dropna().unique().tolist()
+            selected_vals = st.sidebar.multiselect(f"Select values for {filter_column}", unique_vals)
+            if selected_vals:
+                df_main = df_main[df_main[filter_column].isin(selected_vals)]
 
-    if st.sidebar.button("Submit"):
-        if not main_cols or not client_cols:
-            st.error("⚠️ Please select at least one column from both files.")
-        else:
-            # Create concat keys on filtered data
-            df_main_filtered["_merge_key"] = df_main_filtered[main_cols].astype(str).agg("||".join, axis=1)
-            df_client_filtered["_merge_key"] = df_client_filtered[client_cols].astype(str).agg("||".join, axis=1)
+        # Column selection
+        st.sidebar.header("⚙️ Matching Settings")
+        main_cols = st.sidebar.multiselect("Select column(s) from Main file", df_main.columns)
+        client_cols = st.sidebar.multiselect("Select column(s) from Client file", df_client.columns)
 
-            # Find differences
-            client_not_in_main = df_client_filtered[~df_client_filtered["_merge_key"].isin(df_main_filtered["_merge_key"])].drop(columns=["_merge_key"])
-            main_not_in_client = df_main_filtered[~df_main_filtered["_merge_key"].isin(df_client_filtered["_merge_key"])].drop(columns=["_merge_key"])
+        if st.sidebar.button("Submit"):
+            if not main_cols or not client_cols:
+                st.error("⚠️ Please select at least one column from both files.")
+            else:
+                df_main["_merge_key"] = df_main[main_cols].astype(str).agg("||".join, axis=1)
+                df_client["_merge_key"] = df_client[client_cols].astype(str).agg("||".join, axis=1)
 
-            # Display counts
-            st.success(f"✅ Found {len(client_not_in_main)} rows in Client not in Main")
-            st.success(f"✅ Found {len(main_not_in_client)} rows in Main not in Client")
+                client_not_in_main = df_client[~df_client["_merge_key"].isin(df_main["_merge_key"])].drop(columns=["_merge_key"])
+                main_not_in_client = df_main[~df_main["_merge_key"].isin(df_client["_merge_key"])].drop(columns=["_merge_key"])
 
-            # --- Create Summary Sheet ---
-            summary_data = {
-                "Metric": [
-                    "Total rows in Main file (after filter)",
-                    "Total rows in Client file (after filter)",
-                    "Rows in Client not in Main",
-                    "Rows in Main not in Client",
-                    "Columns used for matching (Main)",
-                    "Columns used for matching (Client)"
-                ],
-                "Value": [
-                    len(df_main_filtered),
-                    len(df_client_filtered),
-                    len(client_not_in_main),
-                    len(main_not_in_client),
-                    ", ".join(main_cols),
-                    ", ".join(client_cols)
-                ]
-            }
-            df_summary = pd.DataFrame(summary_data)
+                st.success(f"✅ Found {len(client_not_in_main)} rows in Client not in Main")
+                st.success(f"✅ Found {len(main_not_in_client)} rows in Main not in Client")
 
-            # --- Excel with 3 sheets + formatting ---
-            def convert_to_excel(df1, df2, summary):
-                buffer = BytesIO()
-                with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-                    # Write sheets
-                    summary.to_excel(writer, index=False, sheet_name="Summary")
-                    df1.to_excel(writer, index=False, sheet_name="Client_Not_in_Main")
-                    df2.to_excel(writer, index=False, sheet_name="Main_Not_in_Client")
+                # Show results inline
+                st.write("### 🔹 Client Not in Main")
+                st.dataframe(client_not_in_main, use_container_width=True)
 
-                    # Formatting for Summary sheet
-                    workbook = writer.book
-                    worksheet = writer.sheets["Summary"]
-                    header_format = workbook.add_format({"bold": True, "bg_color": "#D9EAD3", "border": 1})
-                    value_format = workbook.add_format({"border": 1})
+                st.write("### 🔹 Main Not in Client")
+                st.dataframe(main_not_in_client, use_container_width=True)
 
-                    # Apply formatting
-                    for col_num, value in enumerate(summary.columns.values):
-                        worksheet.write(0, col_num, value, header_format)
+                # Summary sheet
+                summary_data = {
+                    "Metric": [
+                        "Total rows in Main file",
+                        "Total rows in Client file",
+                        "Rows in Client not in Main",
+                        "Rows in Main not in Client",
+                        "Columns used for matching (Main)",
+                        "Columns used for matching (Client)"
+                    ],
+                    "Value": [
+                        len(df_main),
+                        len(df_client),
+                        len(client_not_in_main),
+                        len(main_not_in_client),
+                        ", ".join(main_cols),
+                        ", ".join(client_cols)
+                    ]
+                }
+                df_summary = pd.DataFrame(summary_data)
 
-                    worksheet.set_column(0, 0, 45, value_format)  # Metric column
-                    worksheet.set_column(1, 1, 55, value_format)  # Value column
+                # Excel export
+                def convert_to_excel(df1, df2, summary):
+                    buffer = BytesIO()
+                    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+                        summary.to_excel(writer, index=False, sheet_name="Summary")
+                        df1.to_excel(writer, index=False, sheet_name="Client_Not_in_Main")
+                        df2.to_excel(writer, index=False, sheet_name="Main_Not_in_Client")
+                    return buffer.getvalue()
 
-                return buffer.getvalue()
+                excel_file = convert_to_excel(client_not_in_main, main_not_in_client, df_summary)
 
-            excel_file = convert_to_excel(client_not_in_main, main_not_in_client, df_summary)
+                st.download_button(
+                    "📥 Download Comparison_Result.xlsx",
+                    data=excel_file,
+                    file_name="Comparison_Result.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
 
-            # --- Download button ---
-            st.download_button(
-                "📥 Download Comparison_Result.xlsx",
-                data=excel_file,
-                file_name="Comparison_Result.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+except Exception as e:
+    error_details = traceback.format_exc()
+    st.error(f"❌ An error occurred: {e}")
+    with st.expander("🔎 Show full error details"):
+        st.code(error_details, language="python")
