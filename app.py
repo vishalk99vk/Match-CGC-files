@@ -46,15 +46,52 @@ if main_file and client_file:
             st.success(f"✅ Found {len(client_not_in_main)} rows in Client not in Main")
             st.success(f"✅ Found {len(main_not_in_client)} rows in Main not in Client")
 
-            # --- Excel with 2 sheets ---
-            def convert_to_excel(df1, df2):
+            # --- Create Summary Sheet ---
+            summary_data = {
+                "Metric": [
+                    "Total rows in Main file",
+                    "Total rows in Client file",
+                    "Rows in Client not in Main",
+                    "Rows in Main not in Client",
+                    "Columns used for matching (Main)",
+                    "Columns used for matching (Client)"
+                ],
+                "Value": [
+                    len(df_main),
+                    len(df_client),
+                    len(client_not_in_main),
+                    len(main_not_in_client),
+                    ", ".join(main_cols),
+                    ", ".join(client_cols)
+                ]
+            }
+            df_summary = pd.DataFrame(summary_data)
+
+            # --- Excel with 3 sheets + formatting ---
+            def convert_to_excel(df1, df2, summary):
                 buffer = BytesIO()
                 with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+                    # Write sheets
+                    summary.to_excel(writer, index=False, sheet_name="Summary")
                     df1.to_excel(writer, index=False, sheet_name="Client_Not_in_Main")
                     df2.to_excel(writer, index=False, sheet_name="Main_Not_in_Client")
+
+                    # Formatting for Summary sheet
+                    workbook = writer.book
+                    worksheet = writer.sheets["Summary"]
+                    header_format = workbook.add_format({"bold": True, "bg_color": "#D9EAD3", "border": 1})
+                    value_format = workbook.add_format({"border": 1})
+
+                    # Apply formatting
+                    for col_num, value in enumerate(summary.columns.values):
+                        worksheet.write(0, col_num, value, header_format)
+
+                    worksheet.set_column(0, 0, 40, value_format)  # Metric column
+                    worksheet.set_column(1, 1, 50, value_format)  # Value column
+
                 return buffer.getvalue()
 
-            excel_file = convert_to_excel(client_not_in_main, main_not_in_client)
+            excel_file = convert_to_excel(client_not_in_main, main_not_in_client, df_summary)
 
             st.download_button(
                 "📥 Download Comparison_Result.xlsx",
