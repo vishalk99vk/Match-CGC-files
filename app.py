@@ -10,16 +10,17 @@ main_file = st.file_uploader("Upload Main File", type=["csv", "xlsx"])
 client_file = st.file_uploader("Upload Client File", type=["csv", "xlsx"])
 
 if main_file and client_file:
-    # Read files
+    # --- Read Main file ---
     if main_file.name.endswith(".csv"):
-        df_main = pd.read_csv(main_file)
+        df_main = pd.read_csv(main_file, dtype=str, low_memory=False)
     else:
-        df_main = pd.read_excel(main_file)
+        df_main = pd.read_excel(main_file, dtype=str)
 
+    # --- Read Client file ---
     if client_file.name.endswith(".csv"):
-        df_client = pd.read_csv(client_file)
+        df_client = pd.read_csv(client_file, dtype=str, low_memory=False)
     else:
-        df_client = pd.read_excel(client_file)
+        df_client = pd.read_excel(client_file, dtype=str)
 
     # --- MAIN FILE with Excel-like filter ---
     st.write("### 🔎 Filter Main File")
@@ -45,7 +46,7 @@ if main_file and client_file:
     )
     df_client_filtered = pd.DataFrame(grid_client["data"])
 
-    # Column selection
+    # --- Column selection ---
     st.sidebar.header("⚙️ Matching Settings")
     main_cols = st.sidebar.multiselect("Select column(s) from Main file", df_main_filtered.columns)
     client_cols = st.sidebar.multiselect("Select column(s) from Client file", df_client_filtered.columns)
@@ -113,6 +114,7 @@ if main_file and client_file:
 
             excel_file = convert_to_excel(client_not_in_main, main_not_in_client, df_summary)
 
+            # --- Download button ---
             st.download_button(
                 "📥 Download Comparison_Result.xlsx",
                 data=excel_file,
